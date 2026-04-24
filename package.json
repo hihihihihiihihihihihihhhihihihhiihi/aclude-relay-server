@@ -1,0 +1,21 @@
+{
+  "name": "aclude-relay-server",
+  "version": "1.0.0",
+  "description": "Relay server bridging browser terminal (xterm.js) to Claude Code on a remote VM via WebSocket",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "dev": "tsc --watch & node --watch dist/index.js"
+  },
+  "dependencies": {
+    "chokidar": "^4.0.3",
+    "node-pty": "^1.0.0",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/ws": "^8.5.14",
+    "typescript": "^5.7.0"
+  }
+}
