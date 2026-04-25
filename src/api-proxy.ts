@@ -405,6 +405,29 @@ function collectBody(req: IncomingMessage): Promise<Buffer> {
 // ---------------------------------------------------------------------------
 
 const ANTHROPIC_BASE = "https://api.anthropic.com";
+const MANAGED_PROXY_BASE =
+  process.env.MANAGED_PROXY_URL ||
+  "https://aclude-managed-proxy.aclude-proxy.workers.dev";
+
+/**
+ * Detect whether the incoming request is authenticated with an Aclude managed
+ * proxy token (`apk_…`). If yes, the relay's local API proxy must forward the
+ * request to the managed-proxy Cloudflare Worker instead of api.anthropic.com
+ * — the worker is what enforces the user's monthly spend limit. Without this
+ * routing, requests bypass the cap entirely.
+ */
+function detectManagedProxyToken(
+  headers: Record<string, string>,
+): string | null {
+  for (const [key, value] of Object.entries(headers)) {
+    const lk = key.toLowerCase();
+    if (lk === "x-api-key" && value.startsWith("apk_")) return value;
+    if (lk === "authorization" && value.startsWith("Bearer apk_")) {
+      return value.slice("Bearer ".length);
+    }
+  }
+  return null;
+}
 
 export function createApiProxy(options: ApiProxyOptions): ApiProxy {
   let server: Server | null = null;
@@ -439,8 +462,24 @@ export function createApiProxy(options: ApiProxyOptions): ApiProxy {
       forwardHeaders[key] = Array.isArray(value) ? value.join(", ") : value;
     }
 
-    // Forward to Anthropic
-    const upstreamUrl = `${ANTHROPIC_BASE}${url}`;
+    // Decide upstream: managed-proxy worker if the caller is using an `apk_`
+    // token, otherwise direct to Anthropic. The token-based detection means
+    // every request is independently routed — no per-session config needed.
+    const managedToken = detectManagedProxyToken(forwardHeaders);
+    const upstreamBase = managedToken ? MANAGED_PROXY_BASE : ANTHROPIC_BASE;
+    if (managedToken) {
+      // Worker expects Authorization: Bearer apk_… and ignores Anthropic-only
+      // headers. Strip x-api-key + anthropic-beta so the worker's own headers
+      // (which it sets when forwarding to Anthropic) don't collide.
+      forwardHeaders["Authorization"] = `Bearer ${managedToken}`;
+      delete forwardHeaders["authorization"]; // older lower-case duplicate
+      delete forwardHeaders["x-api-key"];
+      delete forwardHeaders["X-Api-Key"];
+      delete forwardHeaders["anthropic-beta"];
+      delete forwardHeaders["anthropic-version"];
+      console.log(`[api-proxy] Routing via managed proxy (apk_…${managedToken.slice(-6)})`);
+    }
+    const upstreamUrl = `${upstreamBase}${url}`;
     let upstreamRes: Response;
     try {
       const fetchInit: RequestInit = {

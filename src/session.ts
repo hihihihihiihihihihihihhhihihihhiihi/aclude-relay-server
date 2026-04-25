@@ -98,7 +98,7 @@ export class Session {
 
     const args: string[] = [
       "--dangerously-skip-permissions",
-      "--model", "claude-opus-4-7",
+      "--model", "claude-opus-4-7[1m]",
       "--system-prompt-file", promptPath,
     ];
     if (withContinue) args.push("--continue");
